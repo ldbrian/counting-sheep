@@ -478,8 +478,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
           }
         }
 
-        if (c.dir > 0 && c.x > screenW + 50) { c.alive = false; c.el.remove(); }
-        else if (c.dir < 0 && c.x + c.cw < -50) { c.alive = false; c.el.remove(); }
+        if (c.dir > 0 && c.x > screenW + 300) { c.alive = false; c.el.remove(); }
+        else if (c.dir < 0 && c.x + c.cw < -300) { c.alive = false; c.el.remove(); }
       } else if (c.state === 'turning') {
         c.turnWait += dt;
         c.x += c.dir * c.speed * 0.1 * dt / 1000;
