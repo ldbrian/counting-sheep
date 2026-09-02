@@ -85,41 +85,102 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
   var eventTextEl = document.getElementById('eventText');
   var eventTextTimer = null;
 
-  // ===== 素材库（加新素材只需加一行）=====
   var SPECIES = {
-    sheep: {
-      imgs: ['assets/sheep_1.png', 'assets/sheep_2.png'],
-      w: 430, h: 286, chance: 0.88
-    },
-    wolf: {
-      imgs: ['assets/wolf_1.png', 'assets/wolf_2.png'],
-      w: 430, h: 286, chance: 0.07
-    },
-    goose: {
-      imgs: ['assets/goose_1.png', 'assets/goose_2.png'],
-      w: 384, h: 306, chance: 0.05, flipX: true
-    }
+    sheep: { imgs: ['assets/sheep_1.png','assets/sheep_2.png'], w: 430, h: 286, chance: 0.88 },
+    wolf:  { imgs: ['assets/wolf_1.png','assets/wolf_2.png'],   w: 430, h: 286, chance: 0.07 },
+    goose: { imgs: ['assets/goose_1.png','assets/goose_2.png'], w: 384, h: 306, chance: 0.05, flipX: true }
   };
 
-  var creatures = [];
-  var creatureId = 0;
-  var gameOver = false;
-  var totalShakes = 0;
-
+  var MAX_CREATURES = 5;
   var SHAKE_DIST = 80;
   var SHAKE_COOLDOWN = 800;
+  var SHAKE_THRESHOLD = 5;
 
+  var gameOver = false;
+  var totalShakes = 0;
   var lastPointerX = null;
   var shakeAccum = 0;
   var lastShakeT = 0;
   var shakeCount = 0;
   var shakeCountReset = null;
-  var SHAKE_THRESHOLD = 5;
   var motionSupported = false;
+  var motionReady = false;
 
   function rand(a, b) { return a + Math.random() * (b - a); }
   function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
-  function bustUrl(url) { return url + '?t=' + Date.now() + Math.random(); }
+  function isMobile() { return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent); }
+
+  // ===== Image Cache =====
+  var imgCache = {};
+  function getImg(src) {
+    if (!imgCache[src]) {
+      var img = new Image();
+      img.src = src;
+      imgCache[src] = img;
+    }
+    return imgCache[src];
+  }
+
+  // Preload all species images
+  (function preloadImages() {
+    for (var k in SPECIES) {
+      var sp = SPECIES[k];
+      for (var i = 0; i < sp.imgs.length; i++) getImg(sp.imgs[i]);
+    }
+  })();
+
+  // ===== Object Pool =====
+  var slots = [];
+  (function createPool() {
+    for (var i = 0; i < MAX_CREATURES; i++) {
+      var el = document.createElement('img');
+      el.className = 'creature';
+      el.style.display = 'none';
+      world.appendChild(el);
+      slots.push({
+        active: false,
+        el: el,
+        species: null,
+        state: 'inactive',
+        behavior: 'normal',
+        x: 0, y: 0, dir: 1, speed: 0, scale: 0,
+        cw: 0, ch: 0, groundY: 0,
+        frame: 0, frameTimer: 0,
+        popT: 0, popDur: 0, vx: 0,
+        turnTimer: 0, turnDelay: 0,
+        returnPhase: 0, returnTimer: 0,
+        bornAt: 0,
+        imgs: null,
+        forcedExit: false
+      });
+    }
+  })();
+
+  function getActiveCount() {
+    var n = 0;
+    for (var i = 0; i < slots.length; i++) { if (slots[i].active) n++; }
+    return n;
+  }
+
+  function getOldestSlot() {
+    var oldest = null;
+    for (var i = 0; i < slots.length; i++) {
+      var s = slots[i];
+      if (!s.active) return s;
+      if (!oldest || s.bornAt < oldest.bornAt) oldest = s;
+    }
+    return oldest;
+  }
+
+  function releaseSlot(s) {
+    s.active = false;
+    s.state = 'inactive';
+    s.species = null;
+    s.behavior = 'normal';
+    s.el.style.display = 'none';
+    s.el.src = '';
+    s.forcedExit = false;
+  }
 
   function getBoxRect() {
     var r = boxEl.getBoundingClientRect();
@@ -132,9 +193,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     eventTextEl.classList.remove('show');
     void eventTextEl.offsetWidth;
     eventTextEl.classList.add('show');
-    eventTextTimer = setTimeout(function() {
-      eventTextEl.classList.remove('show');
-    }, 2500);
+    eventTextTimer = setTimeout(function() { eventTextEl.classList.remove('show'); }, 2500);
   }
 
   function pickSpecies() {
@@ -146,72 +205,96 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     return 'sheep';
   }
 
-  function createCreature(opts) {
-    if (gameOver) return;
-    var activeCount = 0;
-    for (var i = 0; i < creatures.length; i++) {
-      if (creatures[i].alive) activeCount++;
-    }
-    if (activeCount >= MAX_CREATURES) return;
+  function setSlotImg(s, frameIdx) {
+    s.frame = frameIdx;
+    s.el.src = SPECIES[s.species].imgs[frameIdx] + '?t=' + Date.now() + Math.random();
+  }
+
+  // ===== Spawn =====
+  function spawnCreature(opts) {
+    if (gameOver) return null;
     opts = opts || {};
-    var box = getBoxRect();
     var species = opts.species || pickSpecies();
     var sp = SPECIES[species];
     var dir = opts.dir != null ? opts.dir : (Math.random() < 0.5 ? -1 : 1);
     var speed = opts.speed || rand(40, 80);
     var baseScale = isMobile() ? rand(0.09, 0.14) : rand(0.15, 0.22);
     var scale = opts.scale || baseScale;
-
-    var el = document.createElement('img');
-    el.src = bustUrl(sp.imgs[0]);
-    el.className = 'creature';
-    el.style.width = (sp.w * scale) + 'px';
-    el.style.position = 'absolute';
-    world.appendChild(el);
-
     var cw = sp.w * scale;
     var ch = sp.h * scale;
+    var box = getBoxRect();
     var groundY = box.bottom - ch - 10;
 
-    var c = {
-      id: creatureId++,
-      el: el,
-      x: opts.startX != null ? opts.startX : box.cx - cw / 2,
-      y: opts.startY != null ? opts.startY : box.top - ch * 0.3,
-      dir: dir,
-      speed: speed,
-      scale: scale,
-      state: opts.state || 'popping',
-      popT: 0,
-      popDur: 500 + Math.random() * 300,
-      vx: dir * rand(30, 60),
-      frame: 0,
-      frameTimer: 0,
-      alive: true,
-      groundY: groundY,
-      species: species,
-      imgs: sp.imgs,
-      cw: cw,
-      ch: ch,
-      turned: false,
-      turnTimer: 0,
-      turnDelay: rand(2000, 6000),
-      returning: false,
-      returnPhase: 0,
-      returnTimer: 0
-    };
-
-    creatures.push(c);
-    return c;
+    var s = getOldestSlot();
+    if (!s.active) {
+      // Direct spawn
+      initSlot(s, species, sp, dir, speed, scale, cw, ch, groundY, box, opts);
+      return s;
+    }
+    // All slots active — try to accelerate oldest out
+    var acceleratable = null;
+    for (var i = 0; i < slots.length; i++) {
+      var sl = slots[i];
+      if (sl.active && (sl.state === 'walking' || sl.state === 'turning' || sl.state === 'exiting')) {
+        if (!acceleratable || sl.bornAt < acceleratable.bornAt) acceleratable = sl;
+      }
+    }
+    if (acceleratable) {
+      acceleratable.forcedExit = true;
+      acceleratable.speed *= 3;
+      if (acceleratable.state === 'turning') {
+        acceleratable.state = 'walking';
+      }
+    }
+    // Box shake feedback
+    boxEl.style.transition = 'transform .08s';
+    boxEl.style.transform = 'translateX(-50%) rotate(-6deg)';
+    setTimeout(function() { boxEl.style.transform = 'translateX(-50%) rotate(6deg)'; }, 80);
+    setTimeout(function() { boxEl.style.transform = 'translateX(-50%) rotate(0)'; }, 160);
+    return null;
   }
 
+  function initSlot(s, species, sp, dir, speed, scale, cw, ch, groundY, box, opts) {
+    s.active = true;
+    s.species = species;
+    s.behavior = opts.behavior || 'normal';
+    s.state = 'popping';
+    s.dir = dir;
+    s.speed = speed;
+    s.scale = scale;
+    s.cw = cw;
+    s.ch = ch;
+    s.groundY = groundY;
+    s.x = opts.startX != null ? opts.startX : box.cx - cw / 2;
+    s.y = opts.startY != null ? opts.startY : box.top - ch * 0.3;
+    s.vx = dir * rand(30, 60);
+    s.popT = 0;
+    s.popDur = 500 + Math.random() * 300;
+    s.frame = 0;
+    s.frameTimer = 0;
+    s.turnTimer = 0;
+    s.turnDelay = rand(2000, 6000);
+    s.returnPhase = 0;
+    s.returnTimer = 0;
+    s.bornAt = Date.now();
+    s.imgs = sp.imgs;
+    s.forcedExit = false;
+
+    s.el.style.display = '';
+    s.el.style.width = cw + 'px';
+    s.el.style.left = s.x + 'px';
+    s.el.style.top = s.y + 'px';
+    setSlotImg(s, 0);
+  }
+
+  // ===== Shake Detection =====
   function onShake() {
     if (gameOver) return;
     var now = Date.now();
     if (now - lastShakeT < SHAKE_COOLDOWN) return;
     lastShakeT = now;
-
     totalShakes++;
+
     var spawnChance = 1 / (1 + totalShakes * 0.03);
     var darkness = Math.min(0.35, Math.log(1 + totalShakes) * 0.06);
     world.style.filter = 'brightness(' + (1 - darkness) + ')';
@@ -219,10 +302,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     shakeCount++;
     if (shakeCountReset) clearTimeout(shakeCountReset);
     shakeCountReset = setTimeout(function() { shakeCount = 0; }, 3000);
-    if (shakeCount >= 5) {
-      showEventText('慢点数');
-      shakeCount = 0;
-    }
+    if (shakeCount >= 5) { showEventText('慢点数'); shakeCount = 0; }
 
     if (Math.random() < spawnChance) {
       var n = randInt(1, 3);
@@ -230,19 +310,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
       for (var i = 0; i < count; i++) {
         (function(delay) {
           setTimeout(function() {
-            var c = createCreature();
-            if (c && c.species === 'wolf') showEventText('咦 好像有什么东西混在羊群里');
-            else if (c && c.species === 'goose') showEventText('这不是羊吧…');
+            var s = spawnCreature();
+            if (s) {
+              if (s.species === 'wolf') showEventText('咦 好像有什么东西混在羊群里');
+              else if (s.species === 'goose') showEventText('这不是羊吧…');
+            }
           }, delay);
         })(i * 250);
       }
     } else {
-      showEventText(['…', '嗯？', '空的', '什么都没有'][randInt(0, 3)]);
+      showEventText(['…','嗯？','空的','什么都没有'][randInt(0,3)]);
     }
   }
 
-  // ===== 摇手机检测 =====
-  var motionReady = false;
   var permModal = document.getElementById('permModal');
   var permAllow = document.getElementById('permAllow');
   var permDeny = document.getElementById('permDeny');
@@ -252,69 +332,40 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     var acc = e.acceleration || e.accelerationIncludingGravity;
     if (!acc) return;
     var total = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
-    if (total > SHAKE_THRESHOLD) {
-      onShake();
-    }
+    if (total > SHAKE_THRESHOLD) onShake();
   }
 
   function doRequestMotion() {
     if (motionReady) return;
     if (!window.DeviceMotionEvent) return;
     motionSupported = true;
-
     if (typeof DeviceMotionEvent.requestPermission === 'function') {
       DeviceMotionEvent.requestPermission().then(function(state) {
-        if (state === 'granted') {
-          motionReady = true;
-          window.addEventListener('devicemotion', onDeviceMotion);
-        }
+        if (state === 'granted') { motionReady = true; window.addEventListener('devicemotion', onDeviceMotion); }
         updateHint();
-      }).catch(function() {
-        updateHint();
-      });
+      }).catch(function() { updateHint(); });
     } else {
       motionReady = true;
       window.addEventListener('devicemotion', onDeviceMotion);
     }
   }
 
-  permAllow.addEventListener('click', function() {
-    permModal.classList.remove('show');
-    doRequestMotion();
-  });
-
-  permDeny.addEventListener('click', function() {
-    permModal.classList.remove('show');
-  });
+  permAllow.addEventListener('click', function() { permModal.classList.remove('show'); doRequestMotion(); });
+  permDeny.addEventListener('click', function() { permModal.classList.remove('show'); });
 
   function onFirstInteraction() {
     if (!window.DeviceMotionEvent) return;
-    if (typeof DeviceMotionEvent.requestPermission === 'function') {
-      permModal.classList.add('show');
-    } else {
-      motionReady = true;
-      window.addEventListener('devicemotion', onDeviceMotion);
-    }
+    if (typeof DeviceMotionEvent.requestPermission === 'function') permModal.classList.add('show');
+    else { motionReady = true; window.addEventListener('devicemotion', onDeviceMotion); }
     document.removeEventListener('touchstart', onFirstInteraction);
     document.removeEventListener('click', onFirstInteraction);
   }
-
   document.addEventListener('touchstart', onFirstInteraction, { once: true, passive: true });
   document.addEventListener('click', onFirstInteraction, { once: true });
 
-  function isMobile() {
-    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-  }
-  var MAX_CREATURES = 5;
-
   function updateHint() {
-    if (isMobile() && motionSupported) {
-      hintEl.textContent = '摇一摇手机';
-    } else {
-      hintEl.textContent = '左右快速甩鼠标';
-    }
+    hintEl.textContent = (isMobile() && motionSupported) ? '摇一摇手机' : '左右快速甩鼠标';
   }
-
   updateHint();
 
   world.addEventListener('pointermove', function(e) {
@@ -323,20 +374,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     var dx = Math.abs(e.clientX - lastPointerX);
     lastPointerX = e.clientX;
     shakeAccum += dx;
-    if (shakeAccum >= SHAKE_DIST) {
-      shakeAccum = 0;
-      onShake();
-    }
+    if (shakeAccum >= SHAKE_DIST) { shakeAccum = 0; onShake(); }
   });
 
-  world.addEventListener('pointerdown', function() {
-    if (gameOver) return;
-  });
+  world.addEventListener('pointerdown', function() { if (gameOver) return; });
 
-  var REPLY_POOL = [
-    '嗯。','好。','原来如此。','记下了。','是吗。',
-    '然后呢。','哦。','知道了。','行吧。','也行。'
-  ];
+  // ===== Confess =====
+  var REPLY_POOL = ['嗯。','好。','原来如此。','记下了。','是吗。','然后呢。','哦。','知道了。','行吧。','也行。'];
 
   doneBtn.addEventListener('click', function() {
     if (gameOver) return;
@@ -360,32 +404,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     startFadeOut();
   }
 
-  confessInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') submitCount();
-  });
-
-  confessOk.addEventListener('click', function() {
-    if (!confessInput.disabled) submitCount();
-  });
-
+  confessInput.addEventListener('keydown', function(e) { if (e.key === 'Enter') submitCount(); });
+  confessOk.addEventListener('click', function() { if (!confessInput.disabled) submitCount(); });
   confessClose.addEventListener('click', function() {
     confess.classList.remove('show');
-    setTimeout(function() {
-      restartBtn.style.visibility = 'visible';
-      restartBtn.style.opacity = '1';
-    }, 2000);
+    setTimeout(function() { restartBtn.style.visibility = 'visible'; restartBtn.style.opacity = '1'; }, 2000);
   });
 
   restartBtn.addEventListener('click', function() {
-    for (var i = creatures.length - 1; i >= 0; i--) {
-      creatures[i].alive = false;
-      creatures[i].el.remove();
-    }
-    creatures = [];
-    creatureId = 0;
+    for (var i = 0; i < slots.length; i++) releaseSlot(slots[i]);
     gameOver = false;
     boxEl.style.display = '';
     boxEl.style.opacity = '';
+    boxEl.style.transform = 'translateX(-50%)';
     world.style.background = '';
     world.style.filter = '';
     totalShakes = 0;
@@ -411,19 +442,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     boxEl.style.opacity = '0';
     setTimeout(function() { boxEl.style.display = 'none'; }, 3000);
     world.style.background = '#050810';
-    for (var i = 0; i < creatures.length; i++) {
-      var c = creatures[i];
-      if (c.alive) {
-        c.el.style.transition = 'opacity 4s';
-        c.el.style.opacity = '0';
-        (function(cr) {
-          setTimeout(function() { cr.alive = false; cr.el.remove(); }, 4200);
-        })(c);
+    for (var i = 0; i < slots.length; i++) {
+      var s = slots[i];
+      if (s.active) {
+        s.el.style.transition = 'opacity 4s';
+        s.el.style.opacity = '0';
+        (function(sl) {
+          setTimeout(function() { releaseSlot(sl); sl.el.style.opacity = ''; sl.el.style.transition = ''; }, 4200);
+        })(s);
       }
     }
   }
 
-  // ===== 主循环 =====
+  // ===== Main Loop =====
   var lastTime = 0;
 
   function update(now) {
@@ -431,82 +462,101 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     lastTime = now;
     var screenW = window.innerWidth;
 
-    for (var i = creatures.length - 1; i >= 0; i--) {
-      var c = creatures[i];
-      if (!c.alive) continue;
+    for (var i = 0; i < slots.length; i++) {
+      var s = slots[i];
+      if (!s.active) continue;
 
-      if (c.state === 'popping') {
-        c.popT += dt;
-        var t = Math.min(c.popT / c.popDur, 1);
+      // === popping ===
+      if (s.state === 'popping') {
+        s.popT += dt;
+        var t = Math.min(s.popT / s.popDur, 1);
         var arc = Math.sin(t * Math.PI);
-        c.x = (getBoxRect().cx - c.cw / 2) + c.vx * t * 2;
-        c.y = c.groundY + arc * -160;
-        if (t >= 0.4 && t < 0.42) c.el.src = bustUrl(c.imgs[1]);
-        if (t >= 1) {
-          c.state = 'walking';
-          c.y = c.groundY;
-          c.vx = 0;
-        }
-      } else if (c.state === 'walking') {
-        c.x += c.dir * c.speed * dt / 1000;
+        s.x = (getBoxRect().cx - s.cw / 2) + s.vx * t * 2;
+        s.y = s.groundY + arc * -160;
+        if (t >= 0.4 && t < 0.42) setSlotImg(s, 1);
+        if (t >= 1) { s.state = 'walking'; s.y = s.groundY; s.vx = 0; }
+      }
 
-        c.frameTimer += dt;
-        if (c.frameTimer > 150) {
-          c.frameTimer -= 150;
-          c.frame = 1 - c.frame;
-            c.el.src = bustUrl(c.frame === 0 ? c.imgs[0] : c.imgs[1]);
-        }
+      // === walking ===
+      else if (s.state === 'walking') {
+        if (s.forcedExit) s.speed = Math.max(s.speed, 160);
+        s.x += s.dir * s.speed * dt / 1000;
 
-        if (c.species === 'sheep' && !c.turned && !c.returning && !gameOver) {
-          c.turnTimer += dt;
-          var returnAge = c.turnTimer - c.turnDelay;
-          var returnChance = returnAge > 0 ? Math.min(0.08, 0.005 + returnAge * 0.00003) : 0;
-          if (returnAge > 0 && Math.random() < returnChance * dt / 1000) {
-            c.turned = true;
-            c.returning = true;
-            c.state = 'returning';
-            c.dir = c.x > getBoxRect().cx ? -1 : 1;
-            showEventText(Math.random() < 0.5 ? '有只羊跳回去了' : '刚才那只不算吧');
+        s.frameTimer += dt;
+        if (s.frameTimer > 150) { s.frameTimer -= 150; setSlotImg(s, 1 - s.frame); }
+
+        // Behavior: sheep decide turn/return while walking
+        if (s.species === 'sheep' && s.behavior === 'normal' && !s.turned && !gameOver) {
+          s.turnTimer += dt;
+          var age = s.turnTimer - s.turnDelay;
+          if (age > 0) {
+            var r = Math.random();
+            if (r < 0.003 * dt) {
+              // Behavior: turnAround — just reverse direction, walk off-screen
+              s.behavior = 'turnAround';
+              s.turned = true;
+              s.dir = -s.dir;
+              s.state = 'turning';
+              showEventText(Math.random() < 0.5 ? '刚才那只不算吧' : '这只好像走错了');
+            } else if (r < 0.003 * dt + 0.002 * dt) {
+              // Behavior: returnToBox — walk back and jump in
+              s.behavior = 'returnToBox';
+              s.turned = true;
+              s.dir = s.x > getBoxRect().cx ? -1 : 1;
+              s.state = 'returning';
+              s.returnPhase = 0;
+              s.returnTimer = 0;
+              showEventText('有只羊跳回去了');
+            }
           }
         }
 
-      } else if (c.state === 'returning') {
+        // Off-screen cleanup for non-returning creatures
+        if (s.dir > 0 && s.x > screenW + 60) { releaseSlot(s); continue; }
+        if (s.dir < 0 && s.x + s.cw < -60) { releaseSlot(s); continue; }
+      }
+
+      // === turning (turnAround) — walk off opposite side, then release ===
+      else if (s.state === 'turning') {
+        s.x += s.dir * s.speed * dt / 1000;
+        s.frameTimer += dt;
+        if (s.frameTimer > 150) { s.frameTimer -= 150; setSlotImg(s, 1 - s.frame); }
+
+        if (s.dir > 0 && s.x > screenW + 60) { releaseSlot(s); continue; }
+        if (s.dir < 0 && s.x + s.cw < -60) { releaseSlot(s); continue; }
+      }
+
+      // === returning (returnToBox) ===
+      else if (s.state === 'returning') {
         var box = getBoxRect();
-        var targetX = box.cx - c.cw / 2;
-        var distToBox = c.x - targetX;
+        var targetX = box.cx - s.cw / 2;
 
-        if (c.returnPhase === 0) {
-          c.x += c.dir * c.speed * 1.2 * dt / 1000;
-          c.frameTimer += dt;
-          if (c.frameTimer > 120) {
-            c.frameTimer -= 120;
-            c.frame = 1 - c.frame;
-            c.el.src = bustUrl(c.frame === 0 ? c.imgs[0] : c.imgs[1]);
+        if (s.returnPhase === 0) {
+          s.x += s.dir * s.speed * 1.2 * dt / 1000;
+          s.frameTimer += dt;
+          if (s.frameTimer > 120) { s.frameTimer -= 120; setSlotImg(s, 1 - s.frame); }
+          if (Math.abs(s.x - targetX) < 15) {
+            s.returnPhase = 1;
+            s.returnTimer = 0;
+            s.y = s.groundY;
           }
-          if (Math.abs(distToBox) < 15) {
-            c.returnPhase = 1;
-            c.returnTimer = 0;
-            c.y = c.groundY;
-          }
-        } else if (c.returnPhase === 1) {
-          c.returnTimer += dt;
-          var t = Math.min(c.returnTimer / 500, 1);
-          var arc = Math.sin(t * Math.PI);
-          c.x = targetX;
-          c.y = c.groundY + arc * -180;
-          if (t >= 0.3 && t < 0.32) c.el.src = bustUrl(c.imgs[1]);
-          if (t >= 1) {
-            c.alive = false;
-            c.el.remove();
-          }
+        } else if (s.returnPhase === 1) {
+          s.returnTimer += dt;
+          var t2 = Math.min(s.returnTimer / 500, 1);
+          var arc2 = Math.sin(t2 * Math.PI);
+          s.x = targetX;
+          s.y = s.groundY + arc2 * -180;
+          if (t2 >= 0.3 && t2 < 0.32) setSlotImg(s, 1);
+          if (t2 >= 1) { releaseSlot(s); continue; }
         }
       }
 
-      if (c.alive) {
-        c.el.style.left = c.x + 'px';
-        c.el.style.top = c.y + 'px';
-        var shouldFlip = SPECIES[c.species].flipX ? c.dir > 0 : c.dir < 0;
-        c.el.style.transform = shouldFlip ? 'scaleX(-1)' : '';
+      // Render
+      if (s.active) {
+        s.el.style.left = s.x + 'px';
+        s.el.style.top = s.y + 'px';
+        var shouldFlip = SPECIES[s.species].flipX ? s.dir > 0 : s.dir < 0;
+        s.el.style.transform = shouldFlip ? 'scaleX(-1)' : '';
       }
     }
 
