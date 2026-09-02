@@ -313,7 +313,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
             if (gameOver) return;
             var s = spawnCreature();
             if (s) {
-              if (s.species === 'wolf') showEventText('咦 好像有什么东西混在羊群里');
+              if (s.species === 'wolf') showEventText(['咦 好像有什么东西混在羊群里','这好像是一只披着羊皮的狼','那只长得好像不太一样'][randInt(0,2)]);
               else if (s.species === 'goose') showEventText('这不是羊吧…');
             }
           }, delay);
@@ -351,13 +351,23 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     }
   }
 
-  permAllow.addEventListener('click', function() { permModal.classList.remove('show'); doRequestMotion(); });
-  permDeny.addEventListener('click', function() { permModal.classList.remove('show'); });
+  permAllow.addEventListener('click', function() {
+    permModal.classList.remove('show');
+    try { localStorage.setItem('sheep_perm', '1'); } catch(e) {}
+    doRequestMotion();
+  });
+  permDeny.addEventListener('click', function() {
+    permModal.classList.remove('show');
+    try { localStorage.setItem('sheep_perm', '1'); } catch(e) {}
+  });
 
   function onFirstInteraction() {
     if (!window.DeviceMotionEvent) return;
-    if (typeof DeviceMotionEvent.requestPermission === 'function') permModal.classList.add('show');
-    else { motionReady = true; window.addEventListener('devicemotion', onDeviceMotion); }
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      var alreadyAsked = false;
+      try { alreadyAsked = localStorage.getItem('sheep_perm') === '1'; } catch(e) {}
+      if (!alreadyAsked) permModal.classList.add('show');
+    } else { motionReady = true; window.addEventListener('devicemotion', onDeviceMotion); }
     document.removeEventListener('touchstart', onFirstInteraction);
     document.removeEventListener('click', onFirstInteraction);
   }
