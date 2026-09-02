@@ -91,7 +91,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
   var gameOver = false;
   var totalShakes = 0;
 
-  var SHAKE_DIST = 120;
+  var SHAKE_DIST = 80;
   var SHAKE_COOLDOWN = 800;
   var TURN_CHANCE = 0.18;
   var TONIGHT_STEP_MIN = 1;
@@ -243,6 +243,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
             window.addEventListener('devicemotion', onDeviceMotion);
           }
           updateHint();
+        }).catch(function() {
+          updateHint();
         });
         world.removeEventListener('click', requestPerm);
       }, { once: true });
@@ -291,8 +293,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
 
   world.addEventListener('pointerdown', function() {
     if (gameOver) return;
-    lastPointerX = null;
-    shakeAccum = 0;
   });
 
   var REPLY_POOL = [
