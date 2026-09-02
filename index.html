@@ -435,10 +435,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
             var returnAge = c.turnTimer - c.turnDelay - 1000;
             var returnChance = Math.min(0.08, 0.005 + returnAge * 0.00003);
             if (Math.random() < returnChance * dt / 1000) {
-            c.returning = true;
-            c.state = 'returning';
-            c.dir = c.x > getBoxRect().cx ? -1 : 1;
-            showEventText('有只羊跳回去了');
+              c.returning = true;
+              c.state = 'returning';
+              c.dir = c.x > getBoxRect().cx ? -1 : 1;
+              showEventText('有只羊跳回去了');
+            }
           }
         }
 
