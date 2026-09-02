@@ -273,7 +273,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     s.frame = 0;
     s.frameTimer = 0;
     s.turnTimer = 0;
-    s.turnDelay = rand(2000, 6000);
+    s.turnDelay = rand(500, 2000);
     s.returnPhase = 0;
     s.returnTimer = 0;
     s.bornAt = Date.now();
@@ -369,11 +369,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
   }
   updateHint();
 
+  var lastPointerT = 0;
   world.addEventListener('pointermove', function(e) {
     if (gameOver) return;
-    if (lastPointerX === null) { lastPointerX = e.clientX; return; }
+    var now = Date.now();
+    if (lastPointerX === null) { lastPointerX = e.clientX; lastPointerT = now; return; }
+    if (now - lastPointerT > 500) shakeAccum = 0;
+    lastPointerT = now;
     var dx = Math.abs(e.clientX - lastPointerX);
     lastPointerX = e.clientX;
+    if (dx < 3) return;
     shakeAccum += dx;
     if (shakeAccum >= SHAKE_DIST) { shakeAccum = 0; onShake(); }
   });
@@ -491,9 +496,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
           s.turnTimer += dt;
           var age = s.turnTimer - s.turnDelay;
           if (age > 0) {
+            var distFromBox = Math.abs(s.x - getBoxRect().cx);
+            var distFactor = Math.min(distFromBox / 150, 1);
             var roll = Math.random();
-            var turnP = 0.004 * dt;
-            var returnP = 0.005 * dt;
+            var turnP = (0.003 + 0.004 * distFactor) * dt;
+            var returnP = (0.006 + 0.008 * distFactor) * dt;
             if (roll < turnP) {
               s.behavior = 'turnAround';
               s.turned = true;
