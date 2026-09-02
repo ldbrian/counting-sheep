@@ -207,7 +207,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
 
   function setSlotImg(s, frameIdx) {
     s.frame = frameIdx;
-    s.el.src = SPECIES[s.species].imgs[frameIdx] + '?t=' + Date.now() + Math.random();
+    s.el.src = SPECIES[s.species].imgs[frameIdx];
   }
 
   // ===== Spawn =====
@@ -310,6 +310,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
       for (var i = 0; i < count; i++) {
         (function(delay) {
           setTimeout(function() {
+            if (gameOver) return;
             var s = spawnCreature();
             if (s) {
               if (s.species === 'wolf') showEventText('咦 好像有什么东西混在羊群里');
@@ -483,23 +484,23 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
         s.x += s.dir * s.speed * dt / 1000;
 
         s.frameTimer += dt;
-        if (s.frameTimer > 150) { s.frameTimer -= 150; setSlotImg(s, 1 - s.frame); }
+        if (s.frameTimer > 100) { s.frameTimer -= 100; setSlotImg(s, 1 - s.frame); }
 
         // Behavior: sheep decide turn/return while walking
         if (s.species === 'sheep' && s.behavior === 'normal' && !s.turned && !gameOver) {
           s.turnTimer += dt;
           var age = s.turnTimer - s.turnDelay;
           if (age > 0) {
-            var r = Math.random();
-            if (r < 0.003 * dt) {
-              // Behavior: turnAround — just reverse direction, walk off-screen
+            var roll = Math.random();
+            var turnP = 0.004 * dt;
+            var returnP = 0.005 * dt;
+            if (roll < turnP) {
               s.behavior = 'turnAround';
               s.turned = true;
               s.dir = -s.dir;
               s.state = 'turning';
               showEventText(Math.random() < 0.5 ? '刚才那只不算吧' : '这只好像走错了');
-            } else if (r < 0.003 * dt + 0.002 * dt) {
-              // Behavior: returnToBox — walk back and jump in
+            } else if (roll < turnP + returnP) {
               s.behavior = 'returnToBox';
               s.turned = true;
               s.dir = s.x > getBoxRect().cx ? -1 : 1;
@@ -520,7 +521,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
       else if (s.state === 'turning') {
         s.x += s.dir * s.speed * dt / 1000;
         s.frameTimer += dt;
-        if (s.frameTimer > 150) { s.frameTimer -= 150; setSlotImg(s, 1 - s.frame); }
+        if (s.frameTimer > 100) { s.frameTimer -= 100; setSlotImg(s, 1 - s.frame); }
 
         if (s.dir > 0 && s.x > screenW + 60) { releaseSlot(s); continue; }
         if (s.dir < 0 && s.x + s.cw < -60) { releaseSlot(s); continue; }
