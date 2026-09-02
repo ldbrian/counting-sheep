@@ -98,10 +98,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
   var shakeCountReset = null;
   var SHAKE_THRESHOLD = 5;
   var motionSupported = false;
-  var motionPermissionGranted = false;
 
   function rand(a, b) { return a + Math.random() * (b - a); }
   function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+  function bustUrl(url) { return url + '?t=' + Date.now() + Math.random(); }
 
   function getBoxRect() {
     var r = boxEl.getBoundingClientRect();
@@ -139,7 +139,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     var scale = opts.scale || rand(0.15, 0.22);
 
     var el = document.createElement('img');
-    el.src = sp.imgs[0];
+    el.src = bustUrl(sp.imgs[0]);
     el.className = 'creature';
     el.style.width = (sp.w * scale) + 'px';
     el.style.position = 'absolute';
@@ -219,28 +219,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
   }
 
   // ===== 摇手机检测 =====
-  function setupMotion() {
-    if (!window.DeviceMotionEvent) return;
-    motionSupported = true;
-    if (typeof DeviceMotionEvent.requestPermission === 'function') {
-      hintEl.textContent = '点击屏幕授权摇一摇';
-      world.addEventListener('click', function requestPerm() {
-        DeviceMotionEvent.requestPermission().then(function(state) {
-          if (state === 'granted') {
-            motionPermissionGranted = true;
-            window.addEventListener('devicemotion', onDeviceMotion);
-          }
-          updateHint();
-        }).catch(function() {
-          updateHint();
-        });
-        world.removeEventListener('click', requestPerm);
-      }, { once: true });
-    } else {
-      motionPermissionGranted = true;
-      window.addEventListener('devicemotion', onDeviceMotion);
-    }
-  }
+  var motionReady = false;
 
   function onDeviceMotion(e) {
     if (gameOver) return;
@@ -250,6 +229,41 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     if (total > SHAKE_THRESHOLD) {
       onShake();
     }
+  }
+
+  function requestMotionPermission() {
+    if (motionReady) return;
+    if (!window.DeviceMotionEvent) return;
+    motionSupported = true;
+
+    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      DeviceMotionEvent.requestPermission().then(function(state) {
+        if (state === 'granted') {
+          motionReady = true;
+          window.addEventListener('devicemotion', onDeviceMotion);
+        }
+        updateHint();
+      }).catch(function() {
+        updateHint();
+      });
+    } else {
+      motionReady = true;
+      window.addEventListener('devicemotion', onDeviceMotion);
+    }
+  }
+
+  function onFirstInteraction() {
+    requestMotionPermission();
+    document.removeEventListener('touchstart', onFirstInteraction);
+    document.removeEventListener('click', onFirstInteraction);
+  }
+
+  document.addEventListener('touchstart', onFirstInteraction, { once: true, passive: true });
+  document.addEventListener('click', onFirstInteraction, { once: true });
+
+  if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission !== 'function') {
+    motionReady = true;
+    window.addEventListener('devicemotion', onDeviceMotion);
   }
 
   function isMobile() {
@@ -264,7 +278,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     }
   }
 
-  setupMotion();
   updateHint();
 
   world.addEventListener('pointermove', function(e) {
@@ -391,7 +404,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
         var arc = Math.sin(t * Math.PI);
         c.x = (getBoxRect().cx - c.cw / 2) + c.vx * t * 2;
         c.y = c.groundY + arc * -160;
-        if (t >= 0.4 && t < 0.42) c.el.src = c.imgs[1];
+        if (t >= 0.4 && t < 0.42) c.el.src = bustUrl(c.imgs[1]);
         if (t >= 1) {
           c.state = 'walking';
           c.y = c.groundY;
@@ -404,7 +417,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
         if (c.frameTimer > 150) {
           c.frameTimer -= 150;
           c.frame = 1 - c.frame;
-          c.el.src = c.frame === 0 ? c.imgs[0] : c.imgs[1];
+            c.el.src = bustUrl(c.frame === 0 ? c.imgs[0] : c.imgs[1]);
         }
 
         if (c.species === 'sheep' && !c.turned && !c.returning && !gameOver) {
@@ -447,7 +460,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
           if (c.frameTimer > 120) {
             c.frameTimer -= 120;
             c.frame = 1 - c.frame;
-            c.el.src = c.frame === 0 ? c.imgs[0] : c.imgs[1];
+            c.el.src = bustUrl(c.frame === 0 ? c.imgs[0] : c.imgs[1]);
           }
           if (Math.abs(distToBox) < 15) {
             c.returnPhase = 1;
@@ -460,7 +473,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
           var arc = Math.sin(t * Math.PI);
           c.x = targetX;
           c.y = c.groundY + arc * -180;
-          if (t >= 0.3 && t < 0.32) c.el.src = c.imgs[1];
+          if (t >= 0.3 && t < 0.32) c.el.src = bustUrl(c.imgs[1]);
           if (t >= 1) {
             c.alive = false;
             c.el.remove();
