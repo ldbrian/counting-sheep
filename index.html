@@ -9,14 +9,13 @@
 html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:"Microsoft YaHei","PingFang SC",sans-serif;user-select:none;-webkit-user-select:none}
 #world{position:relative;width:100%;height:100%;overflow:hidden;transition:background 3s}
 #world::before{content:'';position:absolute;top:0;left:0;width:100%;height:100%;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:16px 16px;pointer-events:none;z-index:0}
-#box{position:absolute;bottom:12%;left:50%;transform:translateX(-50%);width:120px;height:auto;image-rendering:pixelated;z-index:2;transition:opacity 3s}
+#box{position:absolute;bottom:22%;left:50%;transform:translateX(-50%);width:120px;height:auto;image-rendering:pixelated;z-index:2;transition:opacity 3s}
 .creature{position:absolute;image-rendering:pixelated;z-index:1;transition:none}
-#counter{position:absolute;top:80px;left:24px;color:rgba(255,255,255,.35);font-size:15px;letter-spacing:1px;z-index:10;transition:opacity 3s}
 #title{position:absolute;top:16px;width:100%;text-align:center;z-index:10}
 #title h1{color:rgba(255,255,255,.6);font-size:36px;font-weight:400;letter-spacing:4px;margin:0}
 #title p{color:rgba(255,255,255,.2);font-size:13px;margin-top:6px;letter-spacing:1px}
 #hint{position:absolute;bottom:3%;width:100%;text-align:center;color:rgba(255,255,255,.15);font-size:13px;letter-spacing:1px;transition:opacity 1s}
-#doneBtn{position:absolute;bottom:20px;right:24px;background:none;border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.3);font-size:13px;padding:6px 16px;cursor:pointer;border-radius:20px;z-index:10;transition:opacity 1s,visibility 1s}
+#doneBtn{position:absolute;bottom:14%;left:50%;transform:translateX(-50%);background:none;border:1px solid rgba(255,255,255,.2);color:rgba(255,255,255,.3);font-size:13px;padding:6px 16px;cursor:pointer;border-radius:20px;z-index:10;transition:opacity 1s,visibility 1s}
 #doneBtn:hover{border-color:rgba(255,255,255,.4);color:rgba(255,255,255,.5)}
 #confess{position:absolute;top:0;left:0;width:100%;height:100%;display:none;align-items:center;justify-content:center;z-index:20;flex-direction:column}
 #confess.show{display:flex}
@@ -37,11 +36,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
 <body>
 <div id="world">
   <div id="title"><h1>数羊</h1><p>你负责数，它负责让你数不清</p></div>
-  <div id="counter">今晚：<span id="tonight">?</span></div>
   <img id="box" src="assets/box.png" alt="">
   <div id="eventText"></div>
   <div id="hint">左右快速甩鼠标 / 手指在屏幕上快速左右滑动</div>
-  <button id="doneBtn">就这些吧</button>
+  <button id="doneBtn">就数到这里吧</button>
   <button id="restart">再来一次</button>
 </div>
 <div id="confess">
@@ -57,7 +55,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
 (function(){
   var world = document.getElementById('world');
   var boxEl = document.getElementById('box');
-  var tonightEl = document.getElementById('tonight');
   var hintEl = document.getElementById('hint');
   var doneBtn = document.getElementById('doneBtn');
   var confess = document.getElementById('confess');
@@ -87,22 +84,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
 
   var creatures = [];
   var creatureId = 0;
-  var tonight = 90;
   var gameOver = false;
   var totalShakes = 0;
 
   var SHAKE_DIST = 80;
   var SHAKE_COOLDOWN = 800;
   var TURN_CHANCE = 0.18;
-  var TONIGHT_STEP_MIN = 1;
-  var TONIGHT_STEP_MAX = 9;
 
   var lastPointerX = null;
   var shakeAccum = 0;
   var lastShakeT = 0;
   var shakeCount = 0;
   var shakeCountReset = null;
-  var SHAKE_THRESHOLD = 10;
+  var SHAKE_THRESHOLD = 5;
   var motionSupported = false;
   var motionPermissionGranted = false;
 
@@ -132,10 +126,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
       if (r < acc) return k;
     }
     return 'sheep';
-  }
-
-  function updateCounter() {
-    tonight += randInt(TONIGHT_STEP_MIN, TONIGHT_STEP_MAX);
   }
 
   function createCreature(opts) {
@@ -226,8 +216,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     } else {
       showEventText(['…', '嗯？', '空的', '什么都没有'][randInt(0, 3)]);
     }
-
-    updateCounter();
   }
 
   // ===== 摇手机检测 =====
@@ -256,7 +244,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
 
   function onDeviceMotion(e) {
     if (gameOver) return;
-    var acc = e.accelerationIncludingGravity;
+    var acc = e.acceleration || e.accelerationIncludingGravity;
     if (!acc) return;
     var total = Math.sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
     if (total > SHAKE_THRESHOLD) {
@@ -314,11 +302,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     var val = parseInt(confessInput.value);
     if (isNaN(val)) val = '?';
     var reply = REPLY_POOL[randInt(0, REPLY_POOL.length - 1)];
-    confessReply.textContent = val + '。' + reply + '  今晚的第 ' + tonight + ' 只羊。';
+    confessReply.textContent = val + '。' + reply;
     confessInput.style.opacity = '0';
     confessInput.disabled = true;
     confessOk.style.display = 'none';
-    tonightEl.textContent = tonight;
     setTimeout(function() { confessClose.style.opacity = '1'; }, 1500);
     startFadeOut();
   }
@@ -346,9 +333,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
     }
     creatures = [];
     creatureId = 0;
-    tonight = 90;
-    tonightEl.textContent = '?';
-    tonightEl.style.opacity = '';
     gameOver = false;
     boxEl.style.display = '';
     boxEl.style.opacity = '';
@@ -387,7 +371,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#080c18;font-family:
         })(c);
       }
     }
-    setTimeout(function() { tonightEl.style.opacity = '0'; }, 6000);
   }
 
   // ===== 主循环 =====
